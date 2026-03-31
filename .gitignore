@@ -16,10 +16,11 @@ build/
 *.ipynb_meta
 
 # ── Models & Large Files ──────────────────────────────────────────────────────
-models/*.pt
-models/*.onnx
-models/*.bin
-models/*.safetensors
+*.pt
+*.onnx
+*.bin
+*.safetensors
+models/
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 data/mvtec/                 # Raw dataset — download separately
