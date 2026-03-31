@@ -1,0 +1,32 @@
+# ── Computer Vision ──────────────────────────────────────────────────────────
+ultralytics>=8.3.0              # YOLOv8 detection + fine-tuning
+opencv-python-headless>=4.10.0  # Headless OpenCV (no GUI deps — works in Docker)
+Pillow>=10.4.0                  # Image I/O and annotation drawing
+
+# ── LLM & Agent ──────────────────────────────────────────────────────────────
+langchain>=1.0.0                # Core LangChain framework
+langchain-core>=0.3.0           # PromptTemplate and base abstractions
+langchain-community>=0.3.0      # Document loaders, FAISS wrapper, HF embeddings
+langchain-ollama>=0.2.0         # Local LLM via Ollama (no API key needed)
+langchain-text-splitters>=0.3.0 # RecursiveCharacterTextSplitter
+
+# ── RAG / Vector Store ────────────────────────────────────────────────────────
+faiss-cpu>=1.9.0                # Local vector similarity search (CPU build)
+sentence-transformers>=3.3.0    # Embedding model for RAG (~80 MB, runs on CPU)
+
+# ── Evaluation ────────────────────────────────────────────────────────────────
+ragas>=0.2.0                    # RAG quality evaluation (faithfulness, relevance)
+
+# ── UI ────────────────────────────────────────────────────────────────────────
+gradio>=5.9.0                   # Web UI — served at localhost:7860
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0            # Load .env files for local config
+pydantic>=2.9.0                 # Data validation (used by LangChain internals)
+numpy>=1.26.0                   # Array operations
+tqdm>=4.67.0                    # Progress bars (used by Ultralytics + HF)
+
+# ── Dev / Testing ─────────────────────────────────────────────────────────────
+pytest>=8.3.0                   # Test runner
+pytest-cov>=6.0.0               # Coverage reporting
+ruff>=0.8.0                     # Linter + formatter (replaces flake8/black/isort)

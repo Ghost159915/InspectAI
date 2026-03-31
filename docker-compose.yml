@@ -1,0 +1,34 @@
+services:
+
+  # ── InspectAI app ────────────────────────────────────────────────────────────
+  inspectai:
+    build: .
+    ports:
+      - "7860:7860"
+    volumes:
+      - ./models:/app/models          # Persist downloaded model weights
+      - ./data:/app/data              # Persist datasets and knowledge base
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Ollama (local LLM server) ─────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama     # Persist downloaded model weights
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
