@@ -25,6 +25,21 @@ python-dotenv>=1.0.0            # Load .env files for local config
 pydantic>=2.9.0                 # Data validation (used by LangChain internals)
 numpy>=1.26.0                   # Array operations
 tqdm>=4.67.0                    # Progress bars (used by Ultralytics + HF)
+matplotlib>=3.9.0               # Plots (training curves, annotations) — also pulled by ultralytics
+seaborn>=0.13.0                 # Statistical visualisation (class distribution plots)
+PyYAML>=6.0                     # dataset.yaml read/write — also pulled by ultralytics
+
+# ── Training (optional but recommended) ──────────────────────────────────────
+# Install these only if you plan to run scripts/train.py
+#
+#   pip install fiftyone torch matplotlib seaborn
+#
+# - fiftyone: downloads MVTec AD dataset automatically
+# - torch: required by Ultralytics for GPU/MPS acceleration
+# - matplotlib + seaborn: visualization for training curves & class distribution
+#
+# (These are NOT included in the base requirements.txt to keep app/ lightweight
+#  for Docker deployment. The app itself doesn't need them at runtime.)
 
 # ── Dev / Testing ─────────────────────────────────────────────────────────────
 pytest>=8.3.0                   # Test runner
