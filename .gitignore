@@ -59,3 +59,4 @@ coverage.xml
 # ── Gradio ────────────────────────────────────────────────────────────────────
 gradio_cached_examples/
 flagged/
+data/yolo_dataset/
