@@ -429,22 +429,111 @@ def detect_device(override: str | None) -> str | int:
     return "cpu"
 
 
+def _make_min_delta_stopper(min_delta: float, patience: int):
+    """
+    Return an Ultralytics callback that stops training when mAP@0.5 fails to
+    improve by *min_delta* within a rolling window of *patience* epochs.
+
+    How it works
+    ------------
+    A reference value is set at the start of each window.  After every
+    validation epoch we check whether the best mAP@0.5 seen since the window
+    opened has risen by at least *min_delta*.  If yes, the window resets and
+    training continues.  If *patience* epochs pass without that threshold being
+    reached, ``trainer.stop = True`` is set, which Ultralytics checks at the
+    end of each epoch and exits cleanly.
+
+    Example: min_delta=0.1, patience=30, starting mAP@0.5=0.812
+        → training stops unless mAP@0.5 reaches 0.912 within 30 epochs.
+    """
+    state: dict = {"reference": None, "best": -1.0, "no_improve_count": 0}
+
+    def on_fit_epoch_end(trainer) -> None:
+        current = float(trainer.metrics.get("metrics/mAP50(B)", 0.0))
+
+        if state["reference"] is None:          # first epoch — initialise window
+            state["reference"] = current
+            state["best"]      = current
+            return
+
+        if current > state["best"]:
+            state["best"] = current
+
+        improvement = state["best"] - state["reference"]
+
+        if improvement >= min_delta:
+            # Threshold met — open a new window from the new high
+            _log(f"  [stopper] mAP@0.5 improved +{improvement:.4f} ≥ {min_delta} "
+                 f"— resetting patience window (best={state['best']:.4f})")
+            state["reference"]      = state["best"]
+            state["no_improve_count"] = 0
+        else:
+            state["no_improve_count"] += 1
+            remaining = patience - state["no_improve_count"]
+            _log(f"  [stopper] mAP@0.5 improvement {improvement:.4f} < {min_delta} "
+                 f"— {state['no_improve_count']}/{patience} epochs "
+                 f"({remaining} remaining before stop)")
+
+            if state["no_improve_count"] >= patience:
+                _log(f"  [stopper] Early stop triggered: mAP@0.5 did not improve "
+                     f"by {min_delta} in {patience} epochs "
+                     f"(best={state['best']:.4f}, ref={state['reference']:.4f})")
+                trainer.stop = True
+
+    return on_fit_epoch_end
+
+
 def train(yaml_path: Path, epochs: int, batch: int,
-          device: str | int, run_name: str) -> Path:
-    """Fine-tune YOLOv8n from COCO weights. Returns path to best.pt."""
+          device: str | int, run_name: str,
+          finetune_weights: Path | None = None,
+          min_delta: float | None = None,
+          min_delta_patience: int = 30) -> Path:
+    """
+    Train or fine-tune YOLOv8s. Returns path to best.pt.
+
+    Parameters
+    ----------
+    finetune_weights : Path or None
+        If given, load these weights instead of the base yolov8s.pt COCO
+        checkpoint. Useful for continuing a previous training run.
+    min_delta : float or None
+        Minimum mAP@0.5 improvement required within *min_delta_patience*
+        epochs before training is stopped early. None disables the custom
+        stopper and falls back to Ultralytics' built-in patience.
+    min_delta_patience : int
+        Rolling window size (epochs) for the min-delta check.
+    """
     from ultralytics import YOLO
 
     _log("── Stage 3: Train ──────────────────────────────────────────────")
-    _log(f"  epochs={epochs}  batch={batch}  imgsz=640  device={device}")
 
-    model = YOLO("yolov8s.pt")   # small (11M params) vs nano (3M) — better accuracy, ~2× slower
+    if finetune_weights is not None:
+        if not finetune_weights.exists():
+            _log(f"  ✗ Finetune weights not found: {finetune_weights}")
+            sys.exit(1)
+        _log(f"  Mode   : fine-tune from {finetune_weights}")
+        model = YOLO(str(finetune_weights))
+    else:
+        _log("  Mode   : train from scratch (yolov8s COCO weights)")
+        model = YOLO("yolov8s.pt")
+
+    _log(f"  epochs={epochs}  batch={batch}  imgsz=640  device={device}")
+    if min_delta is not None:
+        _log(f"  Early stop: mAP@0.5 must improve by ≥{min_delta} "
+             f"within {min_delta_patience} epochs")
+        model.add_callback("on_fit_epoch_end",
+                           _make_min_delta_stopper(min_delta, min_delta_patience))
+        # Disable the built-in patience stopper so only our callback fires.
+        builtin_patience = epochs + 1
+    else:
+        builtin_patience = max(10, epochs // 5)
 
     model.train(
         data      = str(yaml_path),
         epochs    = epochs,
         imgsz     = 640,
         batch     = batch,
-        patience  = max(10, epochs // 5),
+        patience  = builtin_patience,
         device    = device,
         project   = str(RUNS_DIR),
         name      = run_name,
@@ -653,13 +742,41 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--skip-build", action="store_true",
                    help="Skip dataset build (use existing data/yolo_dataset/)")
-    p.add_argument("--epochs",    type=int, default=100)
+    p.add_argument("--epochs",    type=int, default=200)
     p.add_argument("--batch",     type=int, default=8,
                    help="Batch size (reduce to 4 if you hit OOM)")
     p.add_argument("--device",    type=str, default=None,
                    help="Device override: cpu | mps | 0  (auto-detected if omitted)")
     p.add_argument("--run-name",  type=str, default="inspectai_v1")
     p.add_argument("--seed",      type=int, default=42)
+
+    # ── Fine-tune / continue training ────────────────────────────────────────
+    p.add_argument(
+        "--finetune", action="store_true",
+        help="Continue training from existing weights instead of starting from scratch",
+    )
+    p.add_argument(
+        "--finetune-weights", type=str,
+        default="runs/inspectai_v1/weights/best.pt",
+        help="Path to .pt checkpoint to fine-tune from (used with --finetune)",
+    )
+    p.add_argument(
+        "--finetune-epochs", type=int, default=50,
+        help="Number of additional epochs to run (used with --finetune)",
+    )
+    p.add_argument(
+        "--min-delta", type=float, default=0.05,
+        help=(
+            "Minimum mAP@0.5 improvement required within --min-delta-patience epochs "
+            "before training stops early.  E.g. 0.1 means the model must gain at least "
+            "+0.10 mAP@0.5 in the window or training halts."
+        ),
+    )
+    p.add_argument(
+        "--min-delta-patience", type=int, default=30,
+        help="Rolling window size (epochs) for the --min-delta early-stop check",
+    )
+
     return p.parse_args()
 
 
@@ -676,23 +793,44 @@ def main() -> None:
     for d in (DATA_YOLO, MODEL_DIR, RUNS_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
+    # ── Fine-tune mode wiring ─────────────────────────────────────────────────
+    if args.finetune:
+        finetune_weights = ROOT / args.finetune_weights
+        # Default the run name to inspectai_v2 so artifacts don't overwrite v1
+        if args.run_name == "inspectai_v1":
+            args.run_name = "inspectai_v2"
+        _log(f"Fine-tune mode  : {finetune_weights} → run '{args.run_name}'")
+        _log(f"Extra epochs    : {args.finetune_epochs}")
+        _log(f"Early stop      : mAP@0.5 must improve ≥{args.min_delta} "
+             f"within {args.min_delta_patience} epochs\n")
+
     # Stage 1
-    if not args.skip_build:
-        yaml_path = build_dataset()
-    else:
+    if args.finetune or args.skip_build:
         yaml_path = DATA_YOLO / "dataset.yaml"
         if not yaml_path.exists():
-            _log("  ✗ dataset.yaml missing. Remove --skip-build to rebuild.")
+            _log("  ✗ dataset.yaml missing. Run without --finetune/--skip-build to rebuild.")
             sys.exit(1)
-        _log("── Stage 1: Build dataset — SKIPPED (--skip-build)\n")
+        label = "SKIPPED (--finetune)" if args.finetune else "SKIPPED (--skip-build)"
+        _log(f"── Stage 1: Build dataset — {label}\n")
+    else:
+        yaml_path = build_dataset()
 
     # Stage 2
     visualise_dataset()
 
     # Stage 3
-    device       = detect_device(args.device)
-    best_weights = train(yaml_path, args.epochs, args.batch,
-                         device, args.run_name)
+    device = detect_device(args.device)
+
+    if args.finetune:
+        best_weights = train(
+            yaml_path, args.finetune_epochs, args.batch, device, args.run_name,
+            finetune_weights = ROOT / args.finetune_weights,
+            min_delta        = args.min_delta,
+            min_delta_patience = args.min_delta_patience,
+        )
+    else:
+        best_weights = train(yaml_path, args.epochs, args.batch,
+                             device, args.run_name)
 
     # Stage 4
     metrics = evaluate(best_weights, yaml_path, device)

@@ -1,47 +1,29 @@
-# ── Computer Vision ──────────────────────────────────────────────────────────
+# ── Computer Vision ───────────────────────────────────────────────────────────
 ultralytics>=8.3.0              # YOLOv8 detection + fine-tuning
-opencv-python-headless>=4.10.0  # Headless OpenCV (no GUI deps — works in Docker)
+opencv-python-headless>=4.10.0  # Headless OpenCV (no GUI deps — works in Docker / HF Spaces)
 Pillow>=10.4.0                  # Image I/O and annotation drawing
 
-# ── LLM & Agent ──────────────────────────────────────────────────────────────
-langchain>=1.0.0                # Core LangChain framework
+# ── LLM & Agent ───────────────────────────────────────────────────────────────
 langchain-core>=0.3.0           # PromptTemplate and base abstractions
 langchain-community>=0.3.0      # Document loaders, FAISS wrapper, HF embeddings
-langchain-ollama>=0.2.0         # Local LLM via Ollama (no API key needed)
+langchain-ollama>=0.2.0         # Local LLM via Ollama (used when LLM_BACKEND=ollama)
 langchain-text-splitters>=0.3.0 # RecursiveCharacterTextSplitter
 
 # ── RAG / Vector Store ────────────────────────────────────────────────────────
 faiss-cpu>=1.9.0                # Local vector similarity search (CPU build)
 sentence-transformers>=3.3.0    # Embedding model for RAG (~80 MB, runs on CPU)
 
-# ── Evaluation ────────────────────────────────────────────────────────────────
-ragas>=0.2.0                    # RAG quality evaluation (faithfulness, relevance)
+# ── Hugging Face ──────────────────────────────────────────────────────────────
+# hf_hub_download — pulls model weights on HF Spaces if not present locally.
+# InferenceClient — used when LLM_BACKEND=hf for serverless LLM calls.
+huggingface_hub>=0.26.0
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 gradio>=5.9.0                   # Web UI — served at localhost:7860
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
-python-dotenv>=1.0.0            # Load .env files for local config
-pydantic>=2.9.0                 # Data validation (used by LangChain internals)
-numpy>=1.26.0                   # Array operations
-tqdm>=4.67.0                    # Progress bars (used by Ultralytics + HF)
-matplotlib>=3.9.0               # Plots (training curves, annotations) — also pulled by ultralytics
-seaborn>=0.13.0                 # Statistical visualisation (class distribution plots)
-PyYAML>=6.0                     # dataset.yaml read/write — also pulled by ultralytics
-
-# ── Training (optional but recommended) ──────────────────────────────────────
-# Install these only if you plan to run scripts/train.py
-#
-#   pip install fiftyone torch matplotlib seaborn
-#
-# - fiftyone: downloads MVTec AD dataset automatically
-# - torch: required by Ultralytics for GPU/MPS acceleration
-# - matplotlib + seaborn: visualization for training curves & class distribution
-#
-# (These are NOT included in the base requirements.txt to keep app/ lightweight
-#  for Docker deployment. The app itself doesn't need them at runtime.)
-
-# ── Dev / Testing ─────────────────────────────────────────────────────────────
-pytest>=8.3.0                   # Test runner
-pytest-cov>=6.0.0               # Coverage reporting
-ruff>=0.8.0                     # Linter + formatter (replaces flake8/black/isort)
+python-dotenv>=1.0.0
+pydantic>=2.9.0
+numpy>=1.26.0
+tqdm>=4.67.0
+PyYAML>=6.0

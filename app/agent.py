@@ -2,46 +2,20 @@
 agent.py — LLM Report Generation Agent
 ========================================
 
-This module is the second stage of the InspectAI pipeline. It takes the
-structured detections from ``detect.py``, retrieves relevant context from the
-knowledge base via ``rag.py``, and uses a locally-running LLM (via Ollama) to
-produce a validated inspection report as a Python dict.
+Takes structured detections from detect.py, retrieves relevant context from
+the RAG knowledge base, and produces a validated inspection report dict.
 
-Pipeline position:
-    detect.py → [agent.py] ↔ rag.py → ui.py
+LLM backend selection (via LLM_BACKEND env var)
+------------------------------------------------
+  "ollama"  (default) — local Ollama server; auto-falls back to rule-based
+                        if Ollama is unreachable (e.g. on HF Spaces)
+  "hf"                — HF Serverless Inference API (set HF_TOKEN secret)
+  "none"              — deterministic rule-based report, no LLM call
 
-Design decisions:
-    Local LLM (Ollama):
-        InspectAI deliberately avoids cloud LLM APIs. Using Ollama means no
-        API keys, no cost per call, no data leaving the machine, and no
-        internet dependency. The default model is Llama 3.2 (3B), which fits
-        comfortably in ~4 GB of RAM and produces consistent structured output.
-        Swap it for any Ollama-compatible model by changing ``OLLAMA_MODEL``.
-
-    Structured output via prompt engineering:
-        Rather than relying on function-calling or JSON-mode (which not all
-        local models support reliably), the prompt specifies the exact JSON
-        schema the model must follow, accompanied by strict rules. The
-        ``_extract_json()`` helper strips any markdown fencing the model
-        may add before parsing.
-
-    Deterministic severity logic:
-        The overall_status field (PASS / REVIEW / FAIL) is determined by
-        strict rules in the prompt rather than left to the model's judgement.
-        This makes the output predictable and auditable.
-
-    RAG integration:
-        Before calling the LLM, the agent queries the RAG knowledge base with
-        a summary of the detected defect types. The returned context is
-        injected into the prompt so the model can reference correct recommended
-        actions from the defect standards document — rather than hallucinating
-        generic advice.
-
-Dependencies:
-    langchain-ollama  — Ollama LLM integration for LangChain
-    langchain-core    — PromptTemplate for structured prompt construction
-    app.detect        — Detection dataclass (input type)
-    app.rag           — retrieve_context (knowledge base lookup)
+For Hugging Face Spaces deployment set:
+  LLM_BACKEND = hf
+  HF_TOKEN    = <your token>          (Space secret)
+  HF_LLM_MODEL = meta-llama/Llama-3.2-3B-Instruct   (or any chat model)
 """
 
 from __future__ import annotations
@@ -50,44 +24,29 @@ import json
 import os
 from datetime import datetime
 
-from langchain_ollama import OllamaLLM
 from langchain_core.prompts import PromptTemplate
 
 from app.detect import Detection
 from app.rag import retrieve_context
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# ── Configuration ──────────────────────────────────────────────────────────────
 
-# Ollama model tag. Must be pulled before first run: `ollama pull llama3.2`
-# Alternatives: "mistral", "llama3.1:8b", "gemma2:2b"
-OLLAMA_MODEL = "llama3.2"
-
-# Ollama server address. Overridden at runtime by the OLLAMA_HOST env var,
-# which docker-compose.yml sets to "http://ollama:11434" so the app container
-# can reach the ollama service container by name.
-OLLAMA_HOST = "http://localhost:11434"
-
-# LLM temperature. 0.1 keeps output near-deterministic for structured JSON
-# tasks — low enough to be consistent, not zero so the model doesn't get stuck.
+OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL",   "llama3.2")
+OLLAMA_HOST     = os.getenv("OLLAMA_HOST",    "http://localhost:11434")
 LLM_TEMPERATURE = 0.1
 
+LLM_BACKEND  = os.getenv("LLM_BACKEND",  "ollama")
+# Qwen2.5-7B-Instruct is the default: it's not gated (no terms-of-service wall),
+# reliably available on HF Serverless Inference, and produces clean JSON output.
+# Override with the HF_LLM_MODEL Space variable if you prefer a different model.
+HF_LLM_MODEL = os.getenv("HF_LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 
-# ── Prompt Template ───────────────────────────────────────────────────────────
+# ── Prompt template ────────────────────────────────────────────────────────────
 
-# The prompt is split into clearly labelled sections:
-#   1. Role definition   — sets the model's persona and task
-#   2. Detected defects  — injected JSON from detect.py
-#   3. RAG context       — retrieved knowledge base excerpts from rag.py
-#   4. Output schema     — exact JSON structure the model must produce
-#   5. Rules             — deterministic constraints for overall_status
-#
-# The schema is embedded as a literal dict with escaped braces ({{ }}) to
-# avoid conflict with Python's str.format() syntax inside PromptTemplate.
 REPORT_PROMPT = PromptTemplate(
     input_variables=["detections_json", "rag_context", "timestamp"],
-    template="""You are an industrial inspection AI assistant. Your job is to
-analyse the list of detected defects and produce a clear, structured
-inspection report in JSON format.
+    template="""You are an industrial inspection AI assistant. Analyse the
+detected defects and produce a structured inspection report in JSON format.
 
 ## Detected Defects
 {detections_json}
@@ -101,180 +60,184 @@ Return ONLY valid JSON matching this schema exactly — no extra keys, no markdo
   "timestamp": "<ISO timestamp>",
   "overall_status": "PASS" | "REVIEW" | "FAIL",
   "defect_count": <integer>,
-  "summary": "<1-2 sentence plain-language summary for a non-technical operator>",
+  "summary": "<1-2 sentence plain-language summary>",
   "defects": [
     {{
       "label": "<defect type>",
       "severity": "low" | "medium" | "high",
       "confidence": <float 0.0-1.0>,
-      "recommended_action": "<specific, actionable instruction for the operator>"
+      "recommended_action": "<specific, actionable instruction>"
     }}
   ],
-  "notes": "<any additional observations or caveats — empty string if none>"
+  "notes": "<any caveats — empty string if none>"
 }}
 
-Rules (apply these exactly — do not deviate):
+Rules:
 - overall_status = "FAIL"   if ANY defect has severity "high"
-- overall_status = "REVIEW" if ANY defect has severity "medium" (and none are "high")
+- overall_status = "REVIEW" if ANY defect has severity "medium" (and none "high")
 - overall_status = "PASS"   if ALL defects are "low" OR defect_count is 0
-- recommended_action MUST be specific — never write "inspect further" without detail
-- Use the Relevant Standards & Context section above to inform recommended_action
-- Do not add any keys beyond those in the schema
+- recommended_action MUST be specific — reference the standards context above
+- Do not add keys beyond those in the schema
 
 Timestamp: {timestamp}
 """,
 )
 
+# ── Rule-based fallback ────────────────────────────────────────────────────────
 
-# ── LLM Loader ────────────────────────────────────────────────────────────────
+_RULE_ACTIONS: dict[str, dict[str, str]] = {
+    "scratch": {
+        "high":   "Isolate component immediately. Measure scratch depth with a profilometer. Reject if depth exceeds 0.1 mm per ISO 1302.",
+        "medium": "Flag for supervisor review. Document scratch location and dimensions. Hold until engineering sign-off.",
+        "low":    "Log occurrence. Continue with increased monitoring frequency. Re-inspect at next scheduled interval.",
+    },
+    "pit": {
+        "high":   "Remove from production line. Pit likely exceeds void-size tolerance. Scrap or escalate for rework assessment.",
+        "medium": "Measure pit diameter. Reject if larger than 0.5 mm per ISO 5436 surface-texture standards.",
+        "low":    "Document occurrence and continue. Monitor for cluster patterns indicating process drift.",
+    },
+    "crack": {
+        "high":   "Immediate quarantine. Structural crack detected — component must be scrapped. Investigate upstream process.",
+        "medium": "Stop production on affected batch. Do not use part. Inspect tooling and forming parameters for root cause.",
+        "low":    "Flag for engineering review. Assess crack propagation risk before proceeding to next assembly stage.",
+    },
+    "contamination": {
+        "high":   "Stop line. Identify and remove contamination source. Clean and re-inspect entire affected batch before resuming.",
+        "medium": "Clean surface with approved solvent per process spec. Re-inspect before continuing. Log batch ID.",
+        "low":    "Clean surface, document, and continue. Increase inspection frequency to detect repeat occurrences.",
+    },
+    "dent": {
+        "high":   "Component fails dimensional tolerance. Scrap. Check forming tooling for wear or misalignment.",
+        "medium": "Measure deformation depth with CMM. Escalate to quality engineer if deformation exceeds 0.3 mm.",
+        "low":    "Document and monitor. Re-inspect before final assembly. Flag if count increases across consecutive parts.",
+    },
+}
 
-# Module-level cache. Initialised on first call to _get_llm().
-# This avoids reconstructing the LangChain LLM object on every request, which
-# incurs a small but unnecessary overhead.
-_llm: OllamaLLM | None = None
+
+def _rule_based_report(detections: list[Detection]) -> dict:
+    """Generate a structured report without calling any LLM."""
+    has_high   = any(d.severity == "high"   for d in detections)
+    has_medium = any(d.severity == "medium" for d in detections)
+    status = "FAIL" if has_high else ("REVIEW" if has_medium else "PASS")
+
+    defect_entries = []
+    for d in detections:
+        action = _RULE_ACTIONS.get(d.label, {}).get(
+            d.severity,
+            "Inspect and document. Escalate to quality engineer if defect persists.",
+        )
+        defect_entries.append({
+            "label":              d.label,
+            "severity":           d.severity,
+            "confidence":         round(d.confidence, 3),
+            "recommended_action": action,
+        })
+
+    count  = len(detections)
+    labels = ", ".join(sorted({d.label for d in detections}))
+    return {
+        "timestamp":      datetime.utcnow().isoformat(),
+        "overall_status": status,
+        "defect_count":   count,
+        "summary":        f"{count} defect{'s' if count != 1 else ''} detected ({labels}). Status: {status}.",
+        "defects":        defect_entries,
+        "notes":          "Report generated by rule-based system (LLM unavailable).",
+    }
 
 
-def _get_llm() -> OllamaLLM:
-    """
-    Initialise and cache the Ollama LLM client.
+# ── HF Inference API ──────────────────────────────────────────────────────────
 
-    Reads ``OLLAMA_HOST`` from the environment on each call so that
-    docker-compose's service-name routing (``http://ollama:11434``) is
-    respected when running inside a container.
+def _call_hf_llm(prompt_text: str) -> str:
+    from huggingface_hub import InferenceClient
+    client = InferenceClient(
+        model=HF_LLM_MODEL,
+        token=os.getenv("HF_TOKEN"),
+    )
+    response = client.chat.completions.create(
+        messages=[{"role": "user", "content": prompt_text}],
+        max_tokens=1024,
+        temperature=LLM_TEMPERATURE,
+    )
+    return response.choices[0].message.content
 
-    Returns:
-        Configured ``OllamaLLM`` instance ready for ``.invoke()`` calls.
-    """
+
+# ── Ollama ─────────────────────────────────────────────────────────────────────
+
+_llm = None
+
+
+def _get_llm():
     global _llm
     if _llm is None:
-        # Allow runtime override — critical for docker-compose networking.
-        host = os.getenv("OLLAMA_HOST", OLLAMA_HOST)
+        from langchain_ollama import OllamaLLM
         _llm = OllamaLLM(
             model=OLLAMA_MODEL,
-            base_url=host,
+            base_url=OLLAMA_HOST,
             temperature=LLM_TEMPERATURE,
         )
     return _llm
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _extract_json(text: str) -> str:
-    """
-    Strip markdown code fences from an LLM response string.
-
-    Many open-source LLMs wrap JSON output in markdown fences even when
-    explicitly told not to::
-
-        ```json
-        { "key": "value" }
-        ```
-
-    This function removes the first and last lines if they are fence markers,
-    returning the raw JSON string for ``json.loads()``.
-
-    Args:
-        text: Raw LLM response string, possibly wrapped in markdown fences.
-
-    Returns:
-        Cleaned string ready for JSON parsing.
-    """
+    """Strip markdown code fences from LLM output before JSON parsing."""
     text = text.strip()
     if text.startswith("```"):
         lines = text.split("\n")
-        # Remove the opening fence line (e.g. "```json") and the closing "```"
-        text = "\n".join(lines[1:-1])
+        text  = "\n".join(lines[1:-1])
     return text
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ── Public API ─────────────────────────────────────────────────────────────────
 
 def generate_report(detections: list[Detection]) -> dict:
     """
-    Generate a structured inspection report from a list of defect detections.
+    Generate a structured inspection report from detection results.
 
-    This is the primary entry point for the agent stage. It orchestrates:
-        1. Early return for zero-detection "clean" images (no LLM call needed).
-        2. RAG retrieval — queries the knowledge base with the detected labels
-           to fetch relevant defect standard excerpts.
-        3. Prompt construction — injects detections JSON and RAG context into
-           ``REPORT_PROMPT``.
-        4. LLM inference — sends the prompt to the local Ollama instance.
-        5. Response parsing — strips markdown fencing and parses JSON.
-        6. Validation — raises ``ValueError`` with the raw response if the
-           model returned unparseable JSON, so the error surfaces cleanly in
-           the UI rather than causing a cryptic downstream crash.
-
-    Args:
-        detections: List of ``Detection`` instances from ``detect.run_detection()``.
-                    An empty list is valid and returns a PASS report immediately
-                    without invoking the LLM.
-
-    Returns:
-        Parsed inspection report as a Python dict conforming to the schema
-        defined in ``REPORT_PROMPT``. Guaranteed to have these keys:
-        ``timestamp``, ``overall_status``, ``defect_count``, ``summary``,
-        ``defects``, ``notes``.
-
-    Raises:
-        ValueError: If the LLM returns a response that cannot be parsed as
-                    valid JSON. The error message includes the raw response for
-                    debugging.
-        ConnectionError: Propagated from Ollama if the LLM server is unreachable.
-                         Ensure Ollama is running: ``ollama serve``
-
-    Example::
-
-        from app.detect import run_detection
-        from app.agent import generate_report
-        from PIL import Image
-
-        img = Image.open("data/samples/scratch_example.jpg")
-        detections = run_detection(img)
-        report = generate_report(detections)
-        print(report["overall_status"])  # "FAIL", "REVIEW", or "PASS"
+    Tries the configured LLM backend first; falls back to the rule-based
+    report generator if the LLM is unreachable or returns invalid JSON.
     """
-    # Fast path: no defects → return a clean PASS report without calling LLM.
-    # This is both an optimisation and a UX improvement — clean images get an
-    # instant response.
     if not detections:
         return {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp":      datetime.utcnow().isoformat(),
             "overall_status": "PASS",
-            "defect_count": 0,
-            "summary": "No defects detected. Surface appears nominal.",
-            "defects": [],
-            "notes": "",
+            "defect_count":   0,
+            "summary":        "No defects detected. Surface appears nominal.",
+            "defects":        [],
+            "notes":          "",
         }
 
-    # Build a natural-language RAG query from detected class names.
-    # Deduplicating labels (set()) avoids redundant retrieval for repeated
-    # detections of the same defect type (e.g. multiple scratches).
-    rag_query = "defect types: " + ", ".join(sorted(set(d.label for d in detections)))
-    rag_context = retrieve_context(rag_query)
+    if LLM_BACKEND == "none":
+        return _rule_based_report(detections)
 
-    # Serialise detections to indented JSON for readability in the prompt.
+    # Build shared prompt inputs
+    rag_query       = "defect types: " + ", ".join(sorted({d.label for d in detections}))
+    rag_context     = retrieve_context(rag_query)
     detections_json = json.dumps([d.to_dict() for d in detections], indent=2)
-    timestamp = datetime.utcnow().isoformat()
-
-    # Fill the prompt template with runtime values.
-    prompt = REPORT_PROMPT.format(
+    prompt_text     = REPORT_PROMPT.format(
         detections_json=detections_json,
         rag_context=rag_context,
-        timestamp=timestamp,
+        timestamp=datetime.utcnow().isoformat(),
     )
 
-    llm = _get_llm()
-    raw_response: str = llm.invoke(prompt)
+    if LLM_BACKEND == "hf":
+        try:
+            return json.loads(_extract_json(_call_hf_llm(prompt_text)))
+        except Exception as exc:
+            error_msg = f"HF Inference API failed — {type(exc).__name__}: {exc}"
+            print(f"[agent] {error_msg}")
+            report = _rule_based_report(detections)
+            report["notes"] = f"Rule-based fallback. Reason: {error_msg}"
+            return report
 
-    # Strip potential markdown fencing before JSON parsing.
-    json_str = _extract_json(raw_response)
-
+    # Ollama (default)
     try:
-        report = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        raise ValueError(
-            f"LLM returned invalid JSON: {e}\n\nRaw LLM response:\n{raw_response}"
-        ) from e
-
-    return report
+        raw = _get_llm().invoke(prompt_text)
+        return json.loads(_extract_json(raw))
+    except Exception as exc:
+        error_msg = f"Ollama unavailable — {type(exc).__name__}: {exc}"
+        print(f"[agent] {error_msg}")
+        report = _rule_based_report(detections)
+        report["notes"] = f"Rule-based fallback. Reason: {error_msg}"
+        return report
