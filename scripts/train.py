@@ -46,15 +46,15 @@ from PIL import Image
 from tqdm import tqdm
 
 # ── Project paths ──────────────────────────────────────────────────────────────
-ROOT      = Path(__file__).resolve().parent.parent          # InspectAI/
-DATA_RAW  = ROOT / "mvtec_anomaly_detection"                # full MVTec dataset
-DATA_YOLO = ROOT / "data" / "yolo_dataset"                  # processed dataset
+ROOT = Path(__file__).resolve().parent.parent  # InspectAI/
+DATA_RAW = ROOT / "mvtec_anomaly_detection"  # full MVTec dataset
+DATA_YOLO = ROOT / "data" / "yolo_dataset"  # processed dataset
 MODEL_DIR = ROOT / "models"
-RUNS_DIR  = ROOT / "runs"
+RUNS_DIR = ROOT / "runs"
 
 # ── Class definitions (sync with app/detect.py + defect_standards.md) ─────────
 CLASS_NAMES = ["scratch", "pit", "crack", "contamination", "dent"]
-CLASS_ID    = {name: i for i, name in enumerate(CLASS_NAMES)}
+CLASS_ID = {name: i for i, name in enumerate(CLASS_NAMES)}
 
 # ── Full MVTec AD → InspectAI class mapping ────────────────────────────────────
 # Covers all 15 categories. Defect types that don't map cleanly to our 5
@@ -65,92 +65,92 @@ CLASS_ID    = {name: i for i, name in enumerate(CLASS_NAMES)}
 MVTEC_MAP: dict[str, dict[str, str]] = {
     "bottle": {
         "contamination": "contamination",
-        "broken_large":  "dent",         # large breakage = structural deformation
-        "broken_small":  "pit",          # small chip = pit / void
+        "broken_large": "dent",  # large breakage = structural deformation
+        "broken_small": "pit",  # small chip = pit / void
     },
     "cable": {
-        "bent_wire":           "dent",    # bent wire = deformation
-        "cut_outer_insulation": "scratch", # surface cut = scratch
-        "poke_insulation":     "pit",     # poke = small pit / puncture
+        "bent_wire": "dent",  # bent wire = deformation
+        "cut_outer_insulation": "scratch",  # surface cut = scratch
+        "poke_insulation": "pit",  # poke = small pit / puncture
     },
     "capsule": {
-        "crack":   "crack",
-        "poke":    "pit",                 # pinhole poke = pit
+        "crack": "crack",
+        "poke": "pit",  # pinhole poke = pit
         "scratch": "scratch",
-        "squeeze": "dent",               # squeeze deformation = dent
+        "squeeze": "dent",  # squeeze deformation = dent
     },
     "carpet": {
-        "cut":               "scratch",   # linear cut = scratch
-        "hole":              "pit",
+        "cut": "scratch",  # linear cut = scratch
+        "hole": "pit",
         "metal_contamination": "contamination",
     },
     "grid": {
-        "bent":              "dent",
-        "broken":            "dent",      # structural break = dent/deformation
+        "bent": "dent",
+        "broken": "dent",  # structural break = dent/deformation
         "metal_contamination": "contamination",
     },
     "hazelnut": {
         "crack": "crack",
-        "cut":   "scratch",              # linear cut = scratch
-        "hole":  "pit",
+        "cut": "scratch",  # linear cut = scratch
+        "hole": "pit",
     },
     "leather": {
-        "cut":  "scratch",               # linear cut = scratch
-        "glue": "contamination",         # glue residue = contamination
-        "poke": "pit",                   # pinhole = pit
+        "cut": "scratch",  # linear cut = scratch
+        "glue": "contamination",  # glue residue = contamination
+        "poke": "pit",  # pinhole = pit
     },
     "metal_nut": {
-        "bent":    "dent",
-        "color":   "contamination",      # discolouration = contamination
+        "bent": "dent",
+        "color": "contamination",  # discolouration = contamination
         "scratch": "scratch",
     },
     "pill": {
         "contamination": "contamination",
-        "crack":         "crack",
-        "scratch":       "scratch",
+        "crack": "crack",
+        "scratch": "scratch",
     },
     "screw": {
         "scratch_head": "scratch",
         "scratch_neck": "scratch",
     },
     "tile": {
-        "crack":      "crack",
-        "glue_strip": "contamination",   # glue residue = contamination
+        "crack": "crack",
+        "glue_strip": "contamination",  # glue residue = contamination
         "gray_stroke": "contamination",  # paint/coating mark = contamination
-        "oil":        "contamination",
-        "rough":      "dent",            # rough surface = deformation
+        "oil": "contamination",
+        "rough": "dent",  # rough surface = deformation
     },
     "toothbrush": {
-        "defective": "scratch",          # toothbrush defects are primarily bristle damage
+        "defective": "scratch",  # toothbrush defects are primarily bristle damage
     },
     "transistor": {
-        "bent_lead":    "dent",          # bent lead = deformation
-        "damaged_case": "dent",          # case damage = deformation
-        "cut_lead":     "scratch",       # cut = scratch
+        "bent_lead": "dent",  # bent lead = deformation
+        "damaged_case": "dent",  # case damage = deformation
+        "cut_lead": "scratch",  # cut = scratch
     },
     "wood": {
-        "hole":    "pit",
-        "liquid":  "contamination",      # liquid stain = contamination
+        "hole": "pit",
+        "liquid": "contamination",  # liquid stain = contamination
         "scratch": "scratch",
     },
     "zipper": {
-        "squeezed_teeth": "dent",        # squeezed = deformation
-        "split_teeth":    "dent",        # split = structural deformation
-        "broken_teeth":   "scratch",     # broken teeth edge = scratch-like damage
+        "squeezed_teeth": "dent",  # squeezed = deformation
+        "split_teeth": "dent",  # split = structural deformation
+        "broken_teeth": "scratch",  # broken teeth edge = scratch-like damage
     },
 }
 
-TRAIN_SPLIT = 0.80   # fraction of defect images → train
+TRAIN_SPLIT = 0.80  # fraction of defect images → train
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _log(msg: str) -> None:
     print(f"[train] {msg}", flush=True)
 
 
-def mask_to_yolo(mask_path: Path, class_id: int,
-                 img_w: int, img_h: int) -> str | None:
+def mask_to_yolo(mask_path: Path, class_id: int, img_w: int, img_h: int) -> str | None:
     """
     Convert a binary segmentation mask to a YOLO bounding-box annotation.
 
@@ -171,17 +171,18 @@ def mask_to_yolo(mask_path: Path, class_id: int,
 
     cx = ((x1 + x2) / 2) / img_w
     cy = ((y1 + y2) / 2) / img_h
-    w  = (x2 - x1)       / img_w
-    h  = (y2 - y1)       / img_h
+    w = (x2 - x1) / img_w
+    h = (y2 - y1) / img_h
 
     # Clamp — masks occasionally extend 1–2 px beyond image bounds
     cx, cy = max(0.0, min(1.0, cx)), max(0.0, min(1.0, cy))
-    w,  h  = max(0.001, min(1.0, w)), max(0.001, min(1.0, h))
+    w, h = max(0.001, min(1.0, w)), max(0.001, min(1.0, h))
 
     return f"{class_id} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}"
 
 
 # ── Stage 1: Build YOLO dataset ───────────────────────────────────────────────
+
 
 def build_dataset() -> Path:
     """
@@ -203,7 +204,7 @@ def build_dataset() -> Path:
         sys.exit(1)
 
     defect_samples: list[dict] = []
-    good_samples:   list[dict] = []
+    good_samples: list[dict] = []
 
     for cat, defect_map in MVTEC_MAP.items():
         cat_dir = DATA_RAW / cat
@@ -214,7 +215,7 @@ def build_dataset() -> Path:
         # ── Defect images ────────────────────────────────────────────────
         for defect_type, class_name in defect_map.items():
             class_id = CLASS_ID[class_name]
-            img_dir  = cat_dir / "test" / defect_type
+            img_dir = cat_dir / "test" / defect_type
             mask_dir = cat_dir / "ground_truth" / defect_type
 
             if not img_dir.exists():
@@ -238,12 +239,14 @@ def build_dataset() -> Path:
                 if label_line is None:
                     label_line = f"{class_id} 0.500000 0.500000 0.900000 0.900000"
 
-                defect_samples.append({
-                    "img_path":    img_path,
-                    "label_lines": [label_line],
-                    "category":    cat,
-                    "class_name":  class_name,
-                })
+                defect_samples.append(
+                    {
+                        "img_path": img_path,
+                        "label_lines": [label_line],
+                        "category": cat,
+                        "class_name": class_name,
+                    }
+                )
 
         # ── Good (negative) images ───────────────────────────────────────
         for split_name in ("train", "test"):
@@ -251,12 +254,14 @@ def build_dataset() -> Path:
             if not good_dir.exists():
                 continue
             for img_path in sorted(good_dir.glob("*.png")):
-                good_samples.append({
-                    "img_path":    img_path,
-                    "label_lines": [],   # empty = negative example
-                    "category":    cat,
-                    "class_name":  "good",
-                })
+                good_samples.append(
+                    {
+                        "img_path": img_path,
+                        "label_lines": [],  # empty = negative example
+                        "category": cat,
+                        "class_name": "good",
+                    }
+                )
 
     _log(f"  Defect samples : {len(defect_samples)}")
     _log(f"  Good samples   : {len(good_samples)}")
@@ -290,7 +295,7 @@ def build_dataset() -> Path:
         balanced.extend(samples)
         n_needed = target_count - len(samples)
         if n_needed > 0:
-            pool   = samples * ((n_needed // len(samples)) + 1)
+            pool = samples * ((n_needed // len(samples)) + 1)
             copies = pool[:n_needed]
             for i, s in enumerate(copies):
                 balanced.append({**s, "copy_idx": i + 1})
@@ -306,7 +311,7 @@ def build_dataset() -> Path:
     random.shuffle(good_samples)
 
     n_train_defect = int(len(defect_samples) * TRAIN_SPLIT)
-    n_train_good   = len(good_samples) // 2
+    n_train_good = len(good_samples) // 2
 
     for i, s in enumerate(defect_samples):
         s["split"] = "train" if i < n_train_defect else "val"
@@ -329,9 +334,9 @@ def build_dataset() -> Path:
 
     errors = 0
     for sample in tqdm(all_samples, desc="  Writing dataset", unit="img"):
-        split    = sample["split"]
-        src      = sample["img_path"]
-        stem     = f"{sample['category']}_{sample['class_name']}_{src.stem}"
+        split = sample["split"]
+        src = sample["img_path"]
+        stem = f"{sample['category']}_{sample['class_name']}_{src.stem}"
         # Oversampled copies get a unique suffix so they don't overwrite originals
         copy_idx = sample.get("copy_idx")
         if copy_idx is not None:
@@ -355,13 +360,15 @@ def build_dataset() -> Path:
     with open(yaml_path, "w") as f:
         yaml.dump(
             {
-                "path":  str(DATA_YOLO),
+                "path": str(DATA_YOLO),
                 "train": "images/train",
-                "val":   "images/val",
-                "nc":    len(CLASS_NAMES),
+                "val": "images/val",
+                "nc": len(CLASS_NAMES),
                 "names": CLASS_NAMES,
             },
-            f, default_flow_style=False, sort_keys=False,
+            f,
+            default_flow_style=False,
+            sort_keys=False,
         )
 
     for split in ("train", "val"):
@@ -374,34 +381,43 @@ def build_dataset() -> Path:
 
 # ── Stage 2: Visualise ────────────────────────────────────────────────────────
 
+
 def visualise_dataset() -> None:
     """Save a class-distribution bar chart to data/yolo_dataset/."""
     _log("── Stage 2: Visualise ──────────────────────────────────────────")
 
-    counts = {"train": {c: 0 for c in CLASS_NAMES},
-              "val":   {c: 0 for c in CLASS_NAMES}}
+    counts = {"train": {c: 0 for c in CLASS_NAMES}, "val": {c: 0 for c in CLASS_NAMES}}
     for split in ("train", "val"):
         for lbl in (DATA_YOLO / "labels" / split).glob("*.txt"):
             for line in lbl.read_text().strip().splitlines():
                 if line:
                     counts[split][CLASS_NAMES[int(line.split()[0])]] += 1
 
-    x     = np.arange(len(CLASS_NAMES))
+    x = np.arange(len(CLASS_NAMES))
     bar_w = 0.35
     fig, ax = plt.subplots(figsize=(9, 5))
-    bars_t = ax.bar(x - bar_w / 2,
-                    [counts["train"][c] for c in CLASS_NAMES],
-                    bar_w, label="train", color="steelblue", alpha=0.85)
-    bars_v = ax.bar(x + bar_w / 2,
-                    [counts["val"][c] for c in CLASS_NAMES],
-                    bar_w, label="val", color="salmon", alpha=0.85)
+    bars_t = ax.bar(
+        x - bar_w / 2,
+        [counts["train"][c] for c in CLASS_NAMES],
+        bar_w,
+        label="train",
+        color="steelblue",
+        alpha=0.85,
+    )
+    bars_v = ax.bar(
+        x + bar_w / 2,
+        [counts["val"][c] for c in CLASS_NAMES],
+        bar_w,
+        label="val",
+        color="salmon",
+        alpha=0.85,
+    )
     ax.bar_label(bars_t, padding=3, fontsize=9)
     ax.bar_label(bars_v, padding=3, fontsize=9)
     ax.set_xticks(x)
     ax.set_xticklabels(CLASS_NAMES, fontsize=11)
     ax.set_ylabel("Instances")
-    ax.set_title("Class distribution — InspectAI YOLO dataset",
-                 fontsize=13, fontweight="bold")
+    ax.set_title("Class distribution — InspectAI YOLO dataset", fontsize=13, fontweight="bold")
     ax.legend()
     sns.despine(ax=ax)
     plt.tight_layout()
@@ -413,12 +429,14 @@ def visualise_dataset() -> None:
 
 # ── Stage 3: Train ────────────────────────────────────────────────────────────
 
+
 def detect_device(override: str | None) -> str | int:
     """Return the best available compute device."""
     if override is not None:
         return int(override) if override.isdigit() else override
 
     import torch
+
     if torch.backends.mps.is_available():
         _log("  Device: Apple MPS  (~25–40 min / 50 epochs on M-series Mac)")
         return "mps"
@@ -451,9 +469,9 @@ def _make_min_delta_stopper(min_delta: float, patience: int):
     def on_fit_epoch_end(trainer) -> None:
         current = float(trainer.metrics.get("metrics/mAP50(B)", 0.0))
 
-        if state["reference"] is None:          # first epoch — initialise window
+        if state["reference"] is None:  # first epoch — initialise window
             state["reference"] = current
-            state["best"]      = current
+            state["best"] = current
             return
 
         if current > state["best"]:
@@ -463,31 +481,42 @@ def _make_min_delta_stopper(min_delta: float, patience: int):
 
         if improvement >= min_delta:
             # Threshold met — open a new window from the new high
-            _log(f"  [stopper] mAP@0.5 improved +{improvement:.4f} ≥ {min_delta} "
-                 f"— resetting patience window (best={state['best']:.4f})")
-            state["reference"]      = state["best"]
+            _log(
+                f"  [stopper] mAP@0.5 improved +{improvement:.4f} ≥ {min_delta} "
+                f"— resetting patience window (best={state['best']:.4f})"
+            )
+            state["reference"] = state["best"]
             state["no_improve_count"] = 0
         else:
             state["no_improve_count"] += 1
             remaining = patience - state["no_improve_count"]
-            _log(f"  [stopper] mAP@0.5 improvement {improvement:.4f} < {min_delta} "
-                 f"— {state['no_improve_count']}/{patience} epochs "
-                 f"({remaining} remaining before stop)")
+            _log(
+                f"  [stopper] mAP@0.5 improvement {improvement:.4f} < {min_delta} "
+                f"— {state['no_improve_count']}/{patience} epochs "
+                f"({remaining} remaining before stop)"
+            )
 
             if state["no_improve_count"] >= patience:
-                _log(f"  [stopper] Early stop triggered: mAP@0.5 did not improve "
-                     f"by {min_delta} in {patience} epochs "
-                     f"(best={state['best']:.4f}, ref={state['reference']:.4f})")
+                _log(
+                    f"  [stopper] Early stop triggered: mAP@0.5 did not improve "
+                    f"by {min_delta} in {patience} epochs "
+                    f"(best={state['best']:.4f}, ref={state['reference']:.4f})"
+                )
                 trainer.stop = True
 
     return on_fit_epoch_end
 
 
-def train(yaml_path: Path, epochs: int, batch: int,
-          device: str | int, run_name: str,
-          finetune_weights: Path | None = None,
-          min_delta: float | None = None,
-          min_delta_patience: int = 30) -> Path:
+def train(
+    yaml_path: Path,
+    epochs: int,
+    batch: int,
+    device: str | int,
+    run_name: str,
+    finetune_weights: Path | None = None,
+    min_delta: float | None = None,
+    min_delta_patience: int = 30,
+) -> Path:
     """
     Train or fine-tune YOLOv8s. Returns path to best.pt.
 
@@ -519,38 +548,40 @@ def train(yaml_path: Path, epochs: int, batch: int,
 
     _log(f"  epochs={epochs}  batch={batch}  imgsz=640  device={device}")
     if min_delta is not None:
-        _log(f"  Early stop: mAP@0.5 must improve by ≥{min_delta} "
-             f"within {min_delta_patience} epochs")
-        model.add_callback("on_fit_epoch_end",
-                           _make_min_delta_stopper(min_delta, min_delta_patience))
+        _log(
+            f"  Early stop: mAP@0.5 must improve by ≥{min_delta} within {min_delta_patience} epochs"
+        )
+        model.add_callback(
+            "on_fit_epoch_end", _make_min_delta_stopper(min_delta, min_delta_patience)
+        )
         # Disable the built-in patience stopper so only our callback fires.
         builtin_patience = epochs + 1
     else:
         builtin_patience = max(10, epochs // 5)
 
     model.train(
-        data      = str(yaml_path),
-        epochs    = epochs,
-        imgsz     = 640,
-        batch     = batch,
-        patience  = builtin_patience,
-        device    = device,
-        project   = str(RUNS_DIR),
-        name      = run_name,
-        exist_ok  = True,
-        save      = True,
-        plots     = True,
-        verbose   = True,
+        data=str(yaml_path),
+        epochs=epochs,
+        imgsz=640,
+        batch=batch,
+        patience=builtin_patience,
+        device=device,
+        project=str(RUNS_DIR),
+        name=run_name,
+        exist_ok=True,
+        save=True,
+        plots=True,
+        verbose=True,
         # Augmentation
-        hsv_h     = 0.015,
-        hsv_s     = 0.7,
-        hsv_v     = 0.4,
-        degrees   = 10.0,
-        translate = 0.1,
-        scale     = 0.5,
-        fliplr    = 0.5,
-        mosaic    = 1.0,
-        cls       = 0.5,
+        hsv_h=0.015,
+        hsv_s=0.7,
+        hsv_v=0.4,
+        degrees=10.0,
+        translate=0.1,
+        scale=0.5,
+        fliplr=0.5,
+        mosaic=1.0,
+        cls=0.5,
     )
 
     best = RUNS_DIR / run_name / "weights" / "best.pt"
@@ -564,21 +595,20 @@ def train(yaml_path: Path, epochs: int, batch: int,
 
 # ── Stage 4: Evaluate ─────────────────────────────────────────────────────────
 
-def evaluate(best_weights: Path, yaml_path: Path,
-             device: str | int) -> dict[str, float]:
+
+def evaluate(best_weights: Path, yaml_path: Path, device: str | int) -> dict[str, float]:
     """Run validation metrics + inference latency benchmark."""
     from ultralytics import YOLO
 
     _log("── Stage 4: Evaluate ───────────────────────────────────────────")
 
-    model   = YOLO(str(best_weights))
-    metrics = model.val(data=str(yaml_path), split="val",
-                        device=device, verbose=False)
+    model = YOLO(str(best_weights))
+    metrics = model.val(data=str(yaml_path), split="val", device=device, verbose=False)
 
-    map50   = float(metrics.box.map50)
+    map50 = float(metrics.box.map50)
     map5095 = float(metrics.box.map)
-    prec    = float(metrics.box.mp)
-    recall  = float(metrics.box.mr)
+    prec = float(metrics.box.mp)
+    recall = float(metrics.box.mr)
 
     _log(f"  mAP@0.5      : {map50:.3f}")
     _log(f"  mAP@0.5:0.95 : {map5095:.3f}")
@@ -599,20 +629,25 @@ def evaluate(best_weights: Path, yaml_path: Path,
     if val_imgs:
         bench_model = YOLO(str(best_weights))
         img = Image.open(val_imgs[0])
-        for _ in range(3):                      # warm-up
+        for _ in range(3):  # warm-up
             bench_model(img, verbose=False)
-        N     = 20
+        N = 20
         start = time.perf_counter()
         for _ in range(N):
             bench_model(img, verbose=False)
         elapsed_ms = (time.perf_counter() - start) / N * 1000
-        _log(f"  Inference    : {elapsed_ms:.1f} ms/image  "
-             f"({1000 / elapsed_ms:.1f} FPS)  [{device}]")
+        _log(
+            f"  Inference    : {elapsed_ms:.1f} ms/image  ({1000 / elapsed_ms:.1f} FPS)  [{device}]"
+        )
 
     _log("")
-    return {"map50": map50, "map5095": map5095,
-            "precision": prec, "recall": recall,
-            "inference_ms": elapsed_ms}
+    return {
+        "map50": map50,
+        "map5095": map5095,
+        "precision": prec,
+        "recall": recall,
+        "inference_ms": elapsed_ms,
+    }
 
 
 def plot_training_curves(run_name: str) -> None:
@@ -622,8 +657,7 @@ def plot_training_curves(run_name: str) -> None:
 
     rows: list[dict] = []
     with open(results_csv) as f:
-        rows = [{k.strip(): v.strip() for k, v in r.items()}
-                for r in csv.DictReader(f)]
+        rows = [{k.strip(): v.strip() for k, v in r.items()} for r in csv.DictReader(f)]
 
     def _col(name: str) -> list[float] | None:
         for row in rows:
@@ -635,8 +669,8 @@ def plot_training_curves(run_name: str) -> None:
                         return None
         return None
 
-    epochs_x   = list(range(1, len(rows) + 1))
-    box_loss   = _col("train/box_loss")
+    epochs_x = list(range(1, len(rows) + 1))
+    box_loss = _col("train/box_loss")
     map50_hist = _col("metrics/mAP50")
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
@@ -649,8 +683,9 @@ def plot_training_curves(run_name: str) -> None:
     if map50_hist:
         best_val = max(map50_hist)
         axes[1].plot(epochs_x, map50_hist, color="darkorange", linewidth=2)
-        axes[1].axhline(y=best_val, color="gray", linestyle="--",
-                        alpha=0.7, label=f"Best: {best_val:.3f}")
+        axes[1].axhline(
+            y=best_val, color="gray", linestyle="--", alpha=0.7, label=f"Best: {best_val:.3f}"
+        )
         axes[1].set_title("Validation mAP@0.5")
         axes[1].set_xlabel("Epoch")
         axes[1].set_ylabel("mAP@0.5")
@@ -665,6 +700,7 @@ def plot_training_curves(run_name: str) -> None:
 
 
 # ── Stage 5: Export ───────────────────────────────────────────────────────────
+
 
 def export_weights(best_weights: Path) -> Path:
     """Copy best.pt → models/inspectai_yolov8.pt (path detect.py expects)."""
@@ -685,6 +721,7 @@ def smoke_test() -> None:
     import importlib
 
     import app.detect as detect_module
+
     detect_module._model = None
     importlib.reload(detect_module)
     from app.detect import run_detection
@@ -711,18 +748,17 @@ def smoke_test() -> None:
     _log("")
 
 
-def print_summary(metrics: dict[str, float], dest: Path,
-                  n_defect: int, epochs: int) -> None:
+def print_summary(metrics: dict[str, float], dest: Path, n_defect: int, epochs: int) -> None:
     _log("── Results (paste into README.md) ──────────────────────────────")
     rows = [
-        ("mAP@0.5",           f"{metrics['map50']:.3f}"),
-        ("mAP@0.5:0.95",      f"{metrics['map5095']:.3f}"),
-        ("Precision",         f"{metrics['precision']:.3f}"),
-        ("Recall",            f"{metrics['recall']:.3f}"),
+        ("mAP@0.5", f"{metrics['map50']:.3f}"),
+        ("mAP@0.5:0.95", f"{metrics['map5095']:.3f}"),
+        ("Precision", f"{metrics['precision']:.3f}"),
+        ("Recall", f"{metrics['recall']:.3f}"),
         ("Inference latency", f"{metrics['inference_ms']:.0f} ms/image"),
-        ("Training images",   str(n_defect)),
-        ("Base model",        "YOLOv8n (COCO pretrained)"),
-        ("Training epochs",   str(epochs)),
+        ("Training images", str(n_defect)),
+        ("Base model", "YOLOv8n (COCO pretrained)"),
+        ("Training epochs", str(epochs)),
     ]
     print("\n| Metric | Value |")
     print("|--------|-------|")
@@ -738,37 +774,50 @@ def print_summary(metrics: dict[str, float], dest: Path,
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="InspectAI YOLOv8 training pipeline",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--skip-build", action="store_true",
-                   help="Skip dataset build (use existing data/yolo_dataset/)")
-    p.add_argument("--epochs",    type=int, default=200)
-    p.add_argument("--batch",     type=int, default=8,
-                   help="Batch size (reduce to 4 if you hit OOM)")
-    p.add_argument("--device",    type=str, default=None,
-                   help="Device override: cpu | mps | 0  (auto-detected if omitted)")
-    p.add_argument("--run-name",  type=str, default="inspectai_v1")
-    p.add_argument("--seed",      type=int, default=42)
+    p.add_argument(
+        "--skip-build",
+        action="store_true",
+        help="Skip dataset build (use existing data/yolo_dataset/)",
+    )
+    p.add_argument("--epochs", type=int, default=200)
+    p.add_argument("--batch", type=int, default=8, help="Batch size (reduce to 4 if you hit OOM)")
+    p.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Device override: cpu | mps | 0  (auto-detected if omitted)",
+    )
+    p.add_argument("--run-name", type=str, default="inspectai_v1")
+    p.add_argument("--seed", type=int, default=42)
 
     # ── Fine-tune / continue training ────────────────────────────────────────
     p.add_argument(
-        "--finetune", action="store_true",
+        "--finetune",
+        action="store_true",
         help="Continue training from existing weights instead of starting from scratch",
     )
     p.add_argument(
-        "--finetune-weights", type=str,
+        "--finetune-weights",
+        type=str,
         default="runs/inspectai_v1/weights/best.pt",
         help="Path to .pt checkpoint to fine-tune from (used with --finetune)",
     )
     p.add_argument(
-        "--finetune-epochs", type=int, default=50,
+        "--finetune-epochs",
+        type=int,
+        default=50,
         help="Number of additional epochs to run (used with --finetune)",
     )
     p.add_argument(
-        "--min-delta", type=float, default=0.05,
+        "--min-delta",
+        type=float,
+        default=0.05,
         help=(
             "Minimum mAP@0.5 improvement required within --min-delta-patience epochs "
             "before training stops early.  E.g. 0.1 means the model must gain at least "
@@ -776,7 +825,9 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     p.add_argument(
-        "--min-delta-patience", type=int, default=30,
+        "--min-delta-patience",
+        type=int,
+        default=30,
         help="Rolling window size (epochs) for the --min-delta early-stop check",
     )
 
@@ -804,8 +855,10 @@ def main() -> None:
             args.run_name = "inspectai_v2"
         _log(f"Fine-tune mode  : {finetune_weights} → run '{args.run_name}'")
         _log(f"Extra epochs    : {args.finetune_epochs}")
-        _log(f"Early stop      : mAP@0.5 must improve ≥{args.min_delta} "
-             f"within {args.min_delta_patience} epochs\n")
+        _log(
+            f"Early stop      : mAP@0.5 must improve ≥{args.min_delta} "
+            f"within {args.min_delta_patience} epochs\n"
+        )
 
     # Stage 1
     if args.finetune or args.skip_build:
@@ -826,14 +879,17 @@ def main() -> None:
 
     if args.finetune:
         best_weights = train(
-            yaml_path, args.finetune_epochs, args.batch, device, args.run_name,
-            finetune_weights = ROOT / args.finetune_weights,
-            min_delta        = args.min_delta,
-            min_delta_patience = args.min_delta_patience,
+            yaml_path,
+            args.finetune_epochs,
+            args.batch,
+            device,
+            args.run_name,
+            finetune_weights=ROOT / args.finetune_weights,
+            min_delta=args.min_delta,
+            min_delta_patience=args.min_delta_patience,
         )
     else:
-        best_weights = train(yaml_path, args.epochs, args.batch,
-                             device, args.run_name)
+        best_weights = train(yaml_path, args.epochs, args.batch, device, args.run_name)
 
     # Stage 4
     metrics = evaluate(best_weights, yaml_path, device)
@@ -844,12 +900,8 @@ def main() -> None:
     smoke_test()
 
     n_defect = sum(
-        1 for lbl in (DATA_YOLO / "labels" / "train").glob("*.txt")
-        if lbl.read_text().strip()
-    ) + sum(
-        1 for lbl in (DATA_YOLO / "labels" / "val").glob("*.txt")
-        if lbl.read_text().strip()
-    )
+        1 for lbl in (DATA_YOLO / "labels" / "train").glob("*.txt") if lbl.read_text().strip()
+    ) + sum(1 for lbl in (DATA_YOLO / "labels" / "val").glob("*.txt") if lbl.read_text().strip())
     print_summary(metrics, dest, n_defect, args.epochs)
 
 

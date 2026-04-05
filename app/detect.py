@@ -42,6 +42,7 @@ SEVERITY_MAP: dict[tuple[float, float], str] = {
 
 # ── Data model ─────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class Detection:
     label: str
@@ -51,10 +52,10 @@ class Detection:
 
     def to_dict(self) -> dict:
         return {
-            "label":      self.label,
+            "label": self.label,
             "confidence": round(self.confidence, 3),
-            "severity":   self.severity,
-            "bbox":       self.bbox,
+            "severity": self.severity,
+            "bbox": self.bbox,
         }
 
 
@@ -67,6 +68,7 @@ def _download_from_hub(dest: Path) -> YOLO:
     """Download weights from HF Hub and return a loaded YOLO instance."""
     try:
         from huggingface_hub import hf_hub_download
+
         print(f"[detect] Downloading weights from {HF_MODEL_REPO}/{HF_MODEL_FILE} …")
         dest.parent.mkdir(parents=True, exist_ok=True)
         local = hf_hub_download(
@@ -100,6 +102,7 @@ def load_model(model_path: Path = DEFAULT_MODEL_PATH) -> YOLO:
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def _get_severity(confidence: float) -> str:
     for (low, high), label in SEVERITY_MAP.items():
         if low <= confidence < high:
@@ -108,6 +111,7 @@ def _get_severity(confidence: float) -> str:
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
+
 
 def run_detection(
     image: Image.Image | np.ndarray,
@@ -129,15 +133,17 @@ def run_detection(
             continue
         img_h, img_w = result.orig_shape[0], result.orig_shape[1]
         for box in result.boxes:
-            conf  = float(box.conf[0])
+            conf = float(box.conf[0])
             label = result.names[int(box.cls[0])]
             x1, y1, x2, y2 = box.xyxy[0].tolist()
             bbox = (x1 / img_w, y1 / img_h, x2 / img_w, y2 / img_h)
-            detections.append(Detection(
-                label=label,
-                confidence=conf,
-                severity=_get_severity(conf),
-                bbox=bbox,
-            ))
+            detections.append(
+                Detection(
+                    label=label,
+                    confidence=conf,
+                    severity=_get_severity(conf),
+                    bbox=bbox,
+                )
+            )
 
     return sorted(detections, key=lambda d: d.confidence, reverse=True)

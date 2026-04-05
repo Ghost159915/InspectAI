@@ -26,14 +26,17 @@ class TestDetection:
 
 
 class TestGetSeverity:
-    @pytest.mark.parametrize("conf, expected", [
-        (0.40, "low"),
-        (0.59, "low"),
-        (0.61, "medium"),
-        (0.79, "medium"),
-        (0.85, "high"),
-        (0.99, "high"),
-    ])
+    @pytest.mark.parametrize(
+        "conf, expected",
+        [
+            (0.40, "low"),
+            (0.59, "low"),
+            (0.61, "medium"),
+            (0.79, "medium"),
+            (0.85, "high"),
+            (0.99, "high"),
+        ],
+    )
     def test_severity_buckets(self, conf, expected):
         assert _get_severity(conf) == expected
 

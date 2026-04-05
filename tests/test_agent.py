@@ -61,7 +61,7 @@ class TestGenerateReport:
 
 class TestExtractJson:
     def test_strips_markdown_fences(self):
-        wrapped = "```json\n{\"key\": \"value\"}\n```"
+        wrapped = '```json\n{"key": "value"}\n```'
         assert _extract_json(wrapped) == '{"key": "value"}'
 
     def test_plain_json_unchanged(self):

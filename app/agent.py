@@ -31,11 +31,11 @@ from app.rag import retrieve_context
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
-OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL",   "llama3.2")
-OLLAMA_HOST     = os.getenv("OLLAMA_HOST",    "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 LLM_TEMPERATURE = 0.1
 
-LLM_BACKEND  = os.getenv("LLM_BACKEND",  "ollama")
+LLM_BACKEND = os.getenv("LLM_BACKEND", "ollama")
 # Qwen2.5-7B-Instruct is the default: it's not gated (no terms-of-service wall),
 # reliably available on HF Serverless Inference, and produces clean JSON output.
 # Override with the HF_LLM_MODEL Space variable if you prefer a different model.
@@ -87,36 +87,36 @@ Timestamp: {timestamp}
 
 _RULE_ACTIONS: dict[str, dict[str, str]] = {
     "scratch": {
-        "high":   "Isolate component immediately. Measure scratch depth with a profilometer. Reject if depth exceeds 0.1 mm per ISO 1302.",
+        "high": "Isolate component immediately. Measure scratch depth with a profilometer. Reject if depth exceeds 0.1 mm per ISO 1302.",
         "medium": "Flag for supervisor review. Document scratch location and dimensions. Hold until engineering sign-off.",
-        "low":    "Log occurrence. Continue with increased monitoring frequency. Re-inspect at next scheduled interval.",
+        "low": "Log occurrence. Continue with increased monitoring frequency. Re-inspect at next scheduled interval.",
     },
     "pit": {
-        "high":   "Remove from production line. Pit likely exceeds void-size tolerance. Scrap or escalate for rework assessment.",
+        "high": "Remove from production line. Pit likely exceeds void-size tolerance. Scrap or escalate for rework assessment.",
         "medium": "Measure pit diameter. Reject if larger than 0.5 mm per ISO 5436 surface-texture standards.",
-        "low":    "Document occurrence and continue. Monitor for cluster patterns indicating process drift.",
+        "low": "Document occurrence and continue. Monitor for cluster patterns indicating process drift.",
     },
     "crack": {
-        "high":   "Immediate quarantine. Structural crack detected — component must be scrapped. Investigate upstream process.",
+        "high": "Immediate quarantine. Structural crack detected — component must be scrapped. Investigate upstream process.",
         "medium": "Stop production on affected batch. Do not use part. Inspect tooling and forming parameters for root cause.",
-        "low":    "Flag for engineering review. Assess crack propagation risk before proceeding to next assembly stage.",
+        "low": "Flag for engineering review. Assess crack propagation risk before proceeding to next assembly stage.",
     },
     "contamination": {
-        "high":   "Stop line. Identify and remove contamination source. Clean and re-inspect entire affected batch before resuming.",
+        "high": "Stop line. Identify and remove contamination source. Clean and re-inspect entire affected batch before resuming.",
         "medium": "Clean surface with approved solvent per process spec. Re-inspect before continuing. Log batch ID.",
-        "low":    "Clean surface, document, and continue. Increase inspection frequency to detect repeat occurrences.",
+        "low": "Clean surface, document, and continue. Increase inspection frequency to detect repeat occurrences.",
     },
     "dent": {
-        "high":   "Component fails dimensional tolerance. Scrap. Check forming tooling for wear or misalignment.",
+        "high": "Component fails dimensional tolerance. Scrap. Check forming tooling for wear or misalignment.",
         "medium": "Measure deformation depth with CMM. Escalate to quality engineer if deformation exceeds 0.3 mm.",
-        "low":    "Document and monitor. Re-inspect before final assembly. Flag if count increases across consecutive parts.",
+        "low": "Document and monitor. Re-inspect before final assembly. Flag if count increases across consecutive parts.",
     },
 }
 
 
 def _rule_based_report(detections: list[Detection]) -> dict:
     """Generate a structured report without calling any LLM."""
-    has_high   = any(d.severity == "high"   for d in detections)
+    has_high = any(d.severity == "high" for d in detections)
     has_medium = any(d.severity == "medium" for d in detections)
     status = "FAIL" if has_high else ("REVIEW" if has_medium else "PASS")
 
@@ -126,29 +126,33 @@ def _rule_based_report(detections: list[Detection]) -> dict:
             d.severity,
             "Inspect and document. Escalate to quality engineer if defect persists.",
         )
-        defect_entries.append({
-            "label":              d.label,
-            "severity":           d.severity,
-            "confidence":         round(d.confidence, 3),
-            "recommended_action": action,
-        })
+        defect_entries.append(
+            {
+                "label": d.label,
+                "severity": d.severity,
+                "confidence": round(d.confidence, 3),
+                "recommended_action": action,
+            }
+        )
 
-    count  = len(detections)
+    count = len(detections)
     labels = ", ".join(sorted({d.label for d in detections}))
     return {
-        "timestamp":      datetime.utcnow().isoformat(),
+        "timestamp": datetime.utcnow().isoformat(),
         "overall_status": status,
-        "defect_count":   count,
-        "summary":        f"{count} defect{'s' if count != 1 else ''} detected ({labels}). Status: {status}.",
-        "defects":        defect_entries,
-        "notes":          "Report generated by rule-based system (LLM unavailable).",
+        "defect_count": count,
+        "summary": f"{count} defect{'s' if count != 1 else ''} detected ({labels}). Status: {status}.",
+        "defects": defect_entries,
+        "notes": "Report generated by rule-based system (LLM unavailable).",
     }
 
 
 # ── HF Inference API ──────────────────────────────────────────────────────────
 
+
 def _call_hf_llm(prompt_text: str) -> str:
     from huggingface_hub import InferenceClient
+
     client = InferenceClient(
         model=HF_LLM_MODEL,
         token=os.getenv("HF_TOKEN"),
@@ -170,6 +174,7 @@ def _get_llm():
     global _llm
     if _llm is None:
         from langchain_ollama import OllamaLLM
+
         _llm = OllamaLLM(
             model=OLLAMA_MODEL,
             base_url=OLLAMA_HOST,
@@ -180,16 +185,18 @@ def _get_llm():
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def _extract_json(text: str) -> str:
     """Strip markdown code fences from LLM output before JSON parsing."""
     text = text.strip()
     if text.startswith("```"):
         lines = text.split("\n")
-        text  = "\n".join(lines[1:-1])
+        text = "\n".join(lines[1:-1])
     return text
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
+
 
 def generate_report(detections: list[Detection]) -> dict:
     """
@@ -200,22 +207,22 @@ def generate_report(detections: list[Detection]) -> dict:
     """
     if not detections:
         return {
-            "timestamp":      datetime.utcnow().isoformat(),
+            "timestamp": datetime.utcnow().isoformat(),
             "overall_status": "PASS",
-            "defect_count":   0,
-            "summary":        "No defects detected. Surface appears nominal.",
-            "defects":        [],
-            "notes":          "",
+            "defect_count": 0,
+            "summary": "No defects detected. Surface appears nominal.",
+            "defects": [],
+            "notes": "",
         }
 
     if LLM_BACKEND == "none":
         return _rule_based_report(detections)
 
     # Build shared prompt inputs
-    rag_query       = "defect types: " + ", ".join(sorted({d.label for d in detections}))
-    rag_context     = retrieve_context(rag_query)
+    rag_query = "defect types: " + ", ".join(sorted({d.label for d in detections}))
+    rag_context = retrieve_context(rag_query)
     detections_json = json.dumps([d.to_dict() for d in detections], indent=2)
-    prompt_text     = REPORT_PROMPT.format(
+    prompt_text = REPORT_PROMPT.format(
         detections_json=detections_json,
         rag_context=rag_context,
         timestamp=datetime.utcnow().isoformat(),

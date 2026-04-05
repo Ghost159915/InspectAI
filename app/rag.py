@@ -15,7 +15,7 @@ from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
-KB_DIR    = Path("data/knowledge_base")
+KB_DIR = Path("data/knowledge_base")
 INDEX_DIR = Path("data/faiss_index")
 
 # ── Module-level index cache ───────────────────────────────────────────────────
@@ -56,7 +56,7 @@ def _build_retriever():
     docs = loader.load()
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-    chunks   = splitter.split_documents(docs)
+    chunks = splitter.split_documents(docs)
 
     vectorstore = FAISS.from_documents(chunks, embeddings)
     INDEX_DIR.mkdir(parents=True, exist_ok=True)
