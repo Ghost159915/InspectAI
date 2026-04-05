@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.agent import generate_report, _extract_json
+from app.agent import _extract_json, generate_report
 from app.detect import Detection
 
 

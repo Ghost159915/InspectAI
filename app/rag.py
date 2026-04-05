@@ -26,8 +26,8 @@ _retriever = None
 def _build_retriever():
     """Load or build the FAISS retriever."""
     from langchain_community.document_loaders import DirectoryLoader, TextLoader
-    from langchain_community.vectorstores import FAISS
     from langchain_community.embeddings import HuggingFaceEmbeddings
+    from langchain_community.vectorstores import FAISS
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 
     embeddings = HuggingFaceEmbeddings(

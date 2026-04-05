@@ -15,8 +15,8 @@ import gradio as gr
 import numpy as np
 from PIL import Image, ImageDraw
 
-from app.detect import run_detection, Detection
 from app.agent import generate_report
+from app.detect import run_detection, Detection
 
 # ── Visual config ──────────────────────────────────────────────────────────────
 
@@ -76,7 +76,6 @@ def inspect(image: np.ndarray) -> tuple[Image.Image, str]:
 # ── App builder ────────────────────────────────────────────────────────────────
 
 def build_app() -> gr.Blocks:
-    import os
     from pathlib import Path
 
     with gr.Blocks(title="InspectAI", theme=gr.themes.Soft()) as app:
