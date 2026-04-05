@@ -16,7 +16,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from app.agent import generate_report
-from app.detect import run_detection, Detection
+from app.detect import Detection, run_detection
 
 # ── Visual config ──────────────────────────────────────────────────────────────
 

@@ -8,7 +8,6 @@ import pytest
 from app.agent import _extract_json, generate_report
 from app.detect import Detection
 
-
 SAMPLE_DETECTIONS = [
     Detection("scratch", 0.82, "high", (0.1, 0.1, 0.4, 0.3)),
     Detection("pit", 0.55, "low", (0.6, 0.6, 0.8, 0.8)),

@@ -587,7 +587,7 @@ def evaluate(best_weights: Path, yaml_path: Path,
 
     if hasattr(metrics.box, "ap_class_index") and metrics.box.ap_class_index is not None:
         _log("  Per-class AP@0.5:")
-        for i, ap in zip(metrics.box.ap_class_index, metrics.box.ap50):
+        for i, ap in zip(metrics.box.ap_class_index, metrics.box.ap50, strict=True):
             _log(f"    {CLASS_NAMES[i]:15s}: {ap:.3f}")
 
     # Inference latency
@@ -643,7 +643,8 @@ def plot_training_curves(run_name: str) -> None:
     if box_loss:
         axes[0].plot(epochs_x, box_loss, color="steelblue", linewidth=2)
         axes[0].set_title("Training Box Loss")
-        axes[0].set_xlabel("Epoch"); axes[0].set_ylabel("Loss")
+        axes[0].set_xlabel("Epoch")
+        axes[0].set_ylabel("Loss")
         sns.despine(ax=axes[0])
     if map50_hist:
         best_val = max(map50_hist)
@@ -651,7 +652,8 @@ def plot_training_curves(run_name: str) -> None:
         axes[1].axhline(y=best_val, color="gray", linestyle="--",
                         alpha=0.7, label=f"Best: {best_val:.3f}")
         axes[1].set_title("Validation mAP@0.5")
-        axes[1].set_xlabel("Epoch"); axes[1].set_ylabel("mAP@0.5")
+        axes[1].set_xlabel("Epoch")
+        axes[1].set_ylabel("mAP@0.5")
         axes[1].legend()
         sns.despine(ax=axes[1])
     plt.suptitle("InspectAI — Training Curves", fontsize=13, fontweight="bold")
@@ -681,6 +683,7 @@ def smoke_test() -> None:
         sys.path.insert(0, str(ROOT))
 
     import importlib
+
     import app.detect as detect_module
     detect_module._model = None
     importlib.reload(detect_module)
